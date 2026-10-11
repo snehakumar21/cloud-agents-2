@@ -75,14 +75,71 @@ The page is served from `http://localhost:5173` and calls the API on `http://127
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/state` | Servers, jobs, KPIs, chart history, latest before/after |
+| GET | `/api/state` | Simulated servers, jobs, KPIs, chart history, latest before/after |
+| GET | `/api/aws/instances` | Read-only AWS EC2 inventory and recent CloudWatch CPU metrics |
 | GET | `/api/agents` | Each agent's latest observation, action, recommendations, JSON output |
 | GET | `/api/logs` | Decision log (agent, decision, explanation, result) |
 | POST | `/api/scenario/{normal\|spike\|underused}` | Load a seeded scenario |
 | POST | `/api/step` | Run one orchestrated cycle |
 | POST | `/api/reset` | Reload the current scenario's seeded start |
 
-All state changes happen inside one lock, so a request never sees a half-finished cycle.
+Simulation state changes happen inside one lock, so a request never sees a half-finished cycle. AWS mode is a separate read-only query; the backend does not start, stop, resize, or migrate AWS resources.
+
+## AWS read-only mode
+
+The dashboard's **AWS Read-Only** selector queries real EC2 inventory and CloudWatch CPU metrics through the backend. Simulation mode remains available and the existing agents/tests continue to exercise only simulated resources. AWS resources are not currently inputs to the simulated agent cycle, and there are no AWS actions. This separation is intentional: the current jobs are simulated objects and cannot be migrated to/from arbitrary EC2 instances.
+
+### Setup steps
+
+1. **Choose an AWS account and region.** Use a non-production account or sandbox for evaluation. Decide the region containing your EC2 instances.
+2. **Install the backend dependencies** from `backend/` after activating your virtual environment:
+   ```bash
+   pip install -r requirements.txt
+   ```
+   This installs `boto3` alongside FastAPI and Uvicorn.
+3. **Configure AWS authentication on the machine running the backend.** Use one of the standard AWS SDK credential sources: an attached IAM role (recommended for an AWS-hosted backend), AWS IAM Identity Center/SSO, or a local profile. For local development, install/configure the AWS CLI and run `aws configure sso` or `aws configure`; do not put credentials in React, `.env` files committed to Git, or source code. Verify with `aws sts get-caller-identity`.
+4. **Grant read-only permissions** to that identity. A minimal starting policy for this endpoint is:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": ["ec2:DescribeInstances"],
+         "Resource": "*"
+       },
+       {
+         "Effect": "Allow",
+         "Action": ["cloudwatch:GetMetricStatistics"],
+         "Resource": "*"
+       }
+     ]
+   }
+   ```
+   These are list/read permissions; do not add `ec2:StartInstances`, `ec2:StopInstances`, or write permissions for this version. AWS APIs generally require `Resource: "*"` for these describe/metric reads. Review the policy against your account requirements before use.
+5. **Set the backend region** before launching FastAPI. For example:
+   ```bash
+   export AWS_REGION=us-east-1
+   ```
+   Replace the example with your region. PowerShell: `$env:AWS_REGION="us-east-1"`.
+6. **Optional: scope inventory to explicitly tagged instances.** Create a tag on the test EC2 instances, then set both values before starting the backend:
+   ```bash
+   export AWS_MANAGED_TAG_KEY=CloudAllocator
+   export AWS_MANAGED_TAG_VALUE=demo
+   ```
+   PowerShell: `$env:AWS_MANAGED_TAG_KEY="CloudAllocator"; $env:AWS_MANAGED_TAG_VALUE="demo"`. If both variables are set, only instances matching the exact tag are listed. If neither is set, the API lists all EC2 instances visible in that account/region.
+7. **Start/restart the backend** using the existing Uvicorn command. Credentials and environment variables must be available to that backend process. Start the frontend as usual and click **AWS Read-Only**.
+8. If the panel reports an error, check that the backend has `boto3`, the credential identity is correct (`aws sts get-caller-identity`), the region is correct, and the identity has the two listed permissions. You can also request `http://127.0.0.1:8000/api/aws/instances` directly or inspect `/docs`.
+
+### What AWS mode reports / limitations
+
+- Instance ID/name, type, state, Availability Zone, private IP, and instance tags from EC2.
+- CPU: mean of returned CloudWatch `CPUUtilization` 5-minute datapoints for the last hour. Newly launched instances or delayed metrics can have no datapoints; the UI shows **Unavailable** rather than zero. Refresh manually to query again.
+- RAM utilization is **not available from standard EC2 metrics**. Installing and configuring the CloudWatch Agent and adding its read permissions is a future extension; this view does not pretend instance memory capacity is utilization.
+- No price is shown: this initial integration does not call AWS pricing APIs and must not confuse simulated prices with AWS costs.
+- This is real AWS account data. Restrict backend network access and protect the API before exposing it outside localhost. The current app has no authentication. AWS mode is read-only, but the API itself is not an authenticated production service.
+
+To make the agents actually allocate cloud resources, the next major change would be a provider interface + AWS resource/workload model and a separate, human-approved action workflow. EC2 instances do not provide a generic operation for moving the current simulated jobs. Do not enable automatic scaling until workload semantics, opt-in tags, IAM boundaries, approvals, audit logging, budget limits, and rollback behavior have been designed and tested.
 
 ## How the system works
 

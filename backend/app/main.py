@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .orchestrator import Orchestrator
 from .scenarios import scenario_keys
 from .state import CloudState, AGENT_KEYS
+from .providers.aws_readonly import AwsConfigurationError, get_aws_inventory
 
 app = FastAPI(title="Multi-Agent AI Cloud Resource Allocator (simulated)")
 
@@ -33,6 +34,15 @@ def root():
 def get_state():
     with state.lock:
         return state.to_dict()
+
+
+@app.get("/api/aws/instances")
+def get_aws_instances():
+    """Read-only AWS EC2 inventory and CloudWatch CPU telemetry."""
+    try:
+        return get_aws_inventory()
+    except AwsConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/agents")

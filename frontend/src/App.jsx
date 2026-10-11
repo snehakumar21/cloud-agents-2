@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_URL, getAgents, getLogs, getState, resetDemo, setScenario, stepCycle } from "./api.js";
+import ActivityLog from "./components/ActivityLog.jsx";
+import AgentPanels from "./components/AgentPanels.jsx";
+import BeforeAfter from "./components/BeforeAfter.jsx";
+import AwsInventory from "./components/AwsInventory.jsx";
 import Controls from "./components/Controls.jsx";
 import KpiCards from "./components/KpiCards.jsx";
 import ServerCard from "./components/ServerCard.jsx";
-import AgentPanels from "./components/AgentPanels.jsx";
 import UtilChart from "./components/UtilChart.jsx";
-import BeforeAfter from "./components/BeforeAfter.jsx";
-import ActivityLog from "./components/ActivityLog.jsx";
 
 const AUTO_INTERVAL_MS = 2500; // simulation runs one cycle every 2.5 seconds
 
@@ -16,6 +17,7 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState("");
   const [auto, setAuto] = useState(false);
+  const [mode, setMode] = useState("simulation");
   const busyRef = useRef(false); // stops two requests from overlapping
 
   // Fetch everything the dashboard shows.
@@ -74,13 +76,17 @@ export default function App() {
         <div>
           <h1>Cloud Resource Allocation</h1>
           <p className="subtitle">Multi-Agent Resource Management System</p>
+          <div className="button-group" role="group" aria-label="Cloud provider">
+            <button className={"btn" + (mode === "simulation" ? " selected" : "")} onClick={() => { setAuto(false); setMode("simulation"); }}>Simulation</button>
+            <button className={"btn" + (mode === "aws" ? " selected" : "")} onClick={() => { setAuto(false); setMode("aws"); }}>AWS Read-Only</button>
+          </div>
         </div>
-        <span className="env-label">Simulated Environment</span>
+        <span className="env-label">{mode === "aws" ? "AWS · Read-only" : "Simulated Environment"}</span>
       </header>
 
       {error && <div className="error-box">{error}</div>}
 
-      {!state ? (
+      {mode === "aws" ? <AwsInventory /> : !state ? (
         <p className="muted">Connecting to the simulation backend...</p>
       ) : (
         <>
@@ -140,7 +146,7 @@ export default function App() {
       )}
 
       <footer className="footer">
-        Simulated, rule-based prototype. No real cloud resources are used and costs are made-up hourly rates.
+        {mode === "aws" ? "AWS mode is read-only: no AWS resources are changed. Standard EC2 metrics do not include memory utilization." : "Simulation mode uses in-memory resources and simulated costs; it does not change AWS resources."}
       </footer>
     </div>
   );

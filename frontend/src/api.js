@@ -10,6 +10,7 @@ async function call(path, method = "GET") {
 }
 
 export const getState = () => call("/api/state");
+export const getAwsInventory = () => call("/api/aws/instances");
 export const getAgents = () => call("/api/agents");
 export const getLogs = () => call("/api/logs");
 export const setScenario = (name) => call(`/api/scenario/${name}`, "POST");
